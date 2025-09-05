@@ -1,0 +1,30 @@
+name: "Dataform SQLX Linter"
+description: "Run Dataform SQLX coding standards checks"
+inputs:
+  files:
+    description: "Comma-separated list of changed .sqlx files"
+    required: true
+  include:
+    description: "CSV of checks to run (default: all)"
+    required: false
+  exclude:
+    description: "CSV of checks to skip"
+    required: false
+  config:
+    description: "Path to YAML/JSON config file"
+    required: false
+  fail-fast:
+    description: "Set to 'true' to stop on first failure"
+    required: false
+runs:
+  using: "composite"
+  steps:
+    - shell: bash
+      run: |
+        IFS=',' read -ra FILES <<< "${{ inputs.files }}"
+        ARGS=()
+        if [ -n "${{ inputs.config }}" ]; then ARGS+=( --config "${{ inputs.config }}" ); fi
+        if [ -n "${{ inputs.include }}" ]; then ARGS+=( --include "${{ inputs.include }}" ); fi
+        if [ -n "${{ inputs.exclude }}" ]; then ARGS+=( --exclude "${{ inputs.exclude }}" ); fi
+        if [ "${{ inputs.fail-fast }}" = "true" ]; then ARGS+=( --fail-fast ); fi
+        python -m dataform_sqlx_linter "${FILES[@]}" "${ARGS[@]}"

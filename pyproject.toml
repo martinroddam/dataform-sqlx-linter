@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dataform-sqlx-linter"
+version = "0.1.0"
+description = "A linter for Dataform SQLX files (descriptions, schemas, column docs) with a GitHub Actions-friendly CLI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { file = "LICENSE" }
+authors = [{ name = "martinroddam"}]
+dependencies = [
+    "pyyaml"
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest",
+  "ruff",
+  "mypy",
+  "pyyaml",
+  "types-PyYAML",
+  "sqlglot"
+]
+yaml = ["pyyaml", "types-PyYAML"]
+
+# Console entry point: `dataform-sqlx-linter` → runner.cli()
+[project.scripts]
+dataform-sqlx-linter = "dataform_sqlx_linter.runner:cli"
+
+# Tell setuptools to look in src/
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+# And to auto-find packages there
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+ignore = ["E401", "E701"]
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_ignores = true
+strict = true
+disable_error_code = ["type-arg"]
+
+[project.urls]
+Repository = "https://github.com/martinroddam/dataform-sqlx-linter.git"

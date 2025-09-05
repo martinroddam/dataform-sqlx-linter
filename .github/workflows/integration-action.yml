@@ -1,0 +1,157 @@
+name: Integration test (Action)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 1) PASS: all good
+          - name: "all-green"
+            files: "definitions/good_desc.sqlx,definitions/good_schema.sqlx,definitions/good_cols.sqlx"
+            include: ""     # run all
+            exclude: ""
+            expected_exit: 0
+
+          # 2) FAIL: missing description
+          - name: "fail-description"
+            files: "definitions/missing_desc.sqlx"
+            include: "description"
+            exclude: ""
+            expected_exit: 1
+
+          # 3) FAIL: schema missing for a table
+          - name: "fail-schema"
+            files: "definitions/missing_schema.sqlx"
+            include: "schema"
+            exclude: ""
+            expected_exit: 1
+
+          # 4) SKIP schema (type is 'assertion') -> PASS overall
+          - name: "skip-schema-on-assertion"
+            files: "definitions/assertion.sqlx"
+            include: "schema"
+            exclude: ""
+            expected_exit: 0
+
+          # 5) FAIL: columns missing descriptions
+          - name: "fail-columns"
+            files: "definitions/bad_cols.sqlx"
+            include: "columns"
+            exclude: ""
+            expected_exit: 1
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install package (editable) + extras
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e '.[dev]'  # includes pytest, ruff, mypy, pyyaml, types-PyYAML
+
+      - name: Create fixtures
+        run: |
+          mkdir -p definitions
+
+          # .sqlx files for schema check
+          cat > definitions/good_schema.sqlx <<'SQLX'
+          config {
+            type: "table",
+            schema: "analytics"
+          }
+          select 1;
+          SQLX
+
+          cat > definitions/missing_schema.sqlx <<'SQLX'
+          config {
+            type: "view"
+            // schema intentionally missing
+          }
+          select 1;
+          SQLX
+
+          cat > definitions/assertion.sqlx <<'SQLX'
+          config {
+            type: "assertion"
+            // should be skipped by schema check
+          }
+          select 1;
+          SQLX
+
+          # .sqlx for description and columns (not actually parsed for those two; they use compiled_graph.json)
+          : > definitions/good_desc.sqlx
+          : > definitions/bad_cols.sqlx
+          : > definitions/good_cols.sqlx
+          : > definitions/missing_desc.sqlx
+
+          # compiled_graph.json for description + column checks
+          cat > compiled_graph.json <<'JSON'
+          {
+            "tables": [
+              {
+                "fileName": "definitions/good_desc.sqlx",
+                "actionDescriptor": { "description": "All good" },
+                "bigquery": { "labels": { "lifecycle_stage": "prod" } }
+              },
+              {
+                "fileName": "definitions/missing_desc.sqlx",
+                "actionDescriptor": {},
+                "bigquery": { "labels": { "lifecycle_stage": "prod" } }
+              },
+              {
+                "fileName": "definitions/good_cols.sqlx",
+                "actionDescriptor": {
+                  "columns": [
+                    { "path": ["id"], "description": "Primary key" },
+                    { "path": ["nested", "field"], "description": "Nested field" }
+                  ]
+                },
+                "bigquery": { "labels": { "lifecycle_stage": "prod" } }
+              },
+              {
+                "fileName": "definitions/bad_cols.sqlx",
+                "actionDescriptor": {
+                  "columns": [
+                    { "path": ["a"], "description": "ok" },
+                    { "path": ["b"], "description": "   " },
+                    { "path": ["c"] }
+                  ]
+                },
+                "bigquery": { "labels": { "lifecycle_stage": "prod" } }
+              }
+            ]
+          }
+          JSON
+
+      - name: Run composite action
+        id: run
+        continue-on-error: true
+        uses: ./.github/actions/run-checks
+        with:
+          files: ${{ matrix.files }}
+          include: ${{ matrix.include }}
+          exclude: ${{ matrix.exclude }}
+          # config: .github/dataform-checks.yml   # optional
+          # fail-fast: "true"                     # optional
+
+      - name: Assert expected outcome
+        run: |
+          echo "Outcome: ${{ steps.run.outcome }}; expected_exit: ${{ matrix.expected_exit }}"
+          if [ "${{ matrix.expected_exit }}" -eq 0 ] && [ "${{ steps.run.outcome }}" != "success" ]; then
+            echo "Expected success but action failed."; exit 1;
+          fi
+          if [ "${{ matrix.expected_exit }}" -eq 1 ] && [ "${{ steps.run.outcome }}" != "failure" ]; then
+            echo "Expected failure but action succeeded."; exit 1;
+          fi
